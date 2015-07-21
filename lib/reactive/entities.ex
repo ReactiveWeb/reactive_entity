@@ -8,7 +8,7 @@ defmodule Reactive.Entities do
   end
 
   @spec get_entity(Id::entity_id()) :: pid()
-  def get_entity(id = {module,args}) do
+  def get_entity(id = [module | args]) do
     :io.format("get_entity called with ~p ~n",[id])
     lr=:ets.lookup(__MODULE__,Id)
     :io.format("entity lookup ~p = ~p ~n",[id,lr])
@@ -21,13 +21,13 @@ defmodule Reactive.Entities do
                           end
       [] ->
         :ets.insert(__MODULE__,{id,:starting})
-        {:ok,pid}=Reactive.Entity.start(module,args)
+        pid=Reactive.Entity.start(module,args)
         :ets.insert(__MODULE__,{id,:existing,pid})
         pid
     end
   end
 
-  def is_entity_running(id = {_module,_args}) do
+  def is_entity_running(id = [_module | _args]) do
     lr=:ets.lookup(__MODULE__,id)
     case lr do
       [{_id,:existing,_pid}] -> true
@@ -40,23 +40,26 @@ defmodule Reactive.Entities do
     :ets.delete(__MODULE__,id)
   end
 
-  defp entity_db_id(_id={module,args}) do
-    argss =  List.map( args , fn ( x ) ->  [ :erlang.term_to_binary( x ), ","] end )
+  defp entity_db_id(_id=[module | args]) do
+    IO.inspect(args)
+    argss =  Enum.map( args , fn ( x ) ->  [ :erlang.term_to_binary( x ), ","] end )
     :erlang.iolist_to_binary( ["e:",:erlang.atom_to_list(module),":",argss ] )
   end
 
   def save_entity(id,state,container) do
     [{:store,store}]=:ets.lookup(__MODULE__,:store)
-    data=:elrang.term_to_binary(%{ :state => state, :container => container })
+    data=:erlang.term_to_binary(%{ :state => state, :container => container })
     :eleveldb.put(store,entity_db_id(id),data,[]);
   end
 
   def retrive_entity(id) do
     [{:store,store}]=:ets.lookup(__MODULE__,:store)
     case :eleveldb.get(store,entity_db_id(id),[]) do
-      {ok, binary} -> {ok,:erlang.binary_to_term(binary)}
+      {:ok, binary} -> {:ok,:erlang.binary_to_term(binary)}
       not_found -> not_found
     end
   end
+
+
 
 end

@@ -1,7 +1,7 @@
 defmodule Reactive.Entity do
   use Behaviour
 
-  @type entity_id() :: {term(),list(term())}
+  @type entity_id() :: list(term())
   @type entity_ref() :: entity_id() | pid()
 
   @doc "called when observer added"
@@ -20,10 +20,10 @@ defmodule Reactive.Entity do
   defcallback convert(old_vsn :: term(), state :: term()) :: state::term()
 
   @doc "retrives module from db"
-  defcallback retrive(id::entity_id()) :: state::term()
+  defcallback retrive(id::entity_id()) :: term()
 
   @doc "saves module from db"
-  defcallback save(id::entity_id(),state::term()) :: :ok
+  defcallback save(id::entity_id(),state::term(),container::term()) :: :ok
 
   @doc "reacts to request"
   defcallback request(req::term(), state::term(), from::pid(), rid::reference()) ::
@@ -66,7 +66,7 @@ defmodule Reactive.Entity do
     id=:erlang.make_ref()
     sendToEntity entity, {:request,id,req,self()}
     receive do
-      response -> response
+      {:response,^id,response} -> response
     end
   end
 
@@ -91,11 +91,12 @@ defmodule Reactive.Entity do
     sendToEntity entity, {:save}
   end
 
-
-
   defmacro __using__(_opts) do
     quote location: :keep do
       @behaviour Reactive.Entity
+
+      @type entity_id() :: list(term())
+      @type entity_ref() :: entity_id() | pid()
 
       def observe(_what,state,_from) do
         state
@@ -125,10 +126,11 @@ defmodule Reactive.Entity do
         throw "not implemented"
       end
       def info(what , state) do
+        :io.format("Unknown Message: ~p ~n",[what])
         throw "not implemented"
       end
 
-      defoverridable [observe: 3,unobserve: 3,can_freeze: 2,request: 3,event: 2, convert: 2, retrive: 1, save: 3]
+      defoverridable [observe: 3,unobserve: 3,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3]
 
       @spec observe(entity::entity_ref(), what::term()) :: entity_ref()
         def observe(entity,what) do
@@ -144,7 +146,7 @@ defmodule Reactive.Entity do
 
       @spec save_me() :: :ok
       def save_me() do
-        save(self())
+        Reactive.Entity.save(self())
       end
 
       @spec notify_observers(signal::atom(), data::term()) :: :ok
@@ -158,7 +160,7 @@ defmodule Reactive.Entity do
       end
 
       def reply(to,rid,data) do
-        sendToEntity to, {:response,rid,reply}
+        Reactive.Entity.sendToEntity to, {:response,rid,data}
       end
     end
   end
@@ -175,9 +177,10 @@ defmodule Reactive.Entity do
   end
 
   def start_loop(module,args) do
-    id={module,args}
+    id=[module | args]
     case apply(module,:retrive,[id]) do
-      {:found,state,container} ->
+      {:ok,
+        %{state: state, container: container}} ->
         :io.format("persistent_entity ~p retriven from DB ~n",[id])
         :io.format("persistent_entity ~p started with pid ~p ~n",[id,self()])
 
@@ -213,7 +216,7 @@ defmodule Reactive.Entity do
         loop(module,id,newState,container)
       {:save} -> apply(module,:save,[id,state,container])
                  loop(module,id,state,container)
-      {'DOWN',_monitor,:process,pid,_} ->
+      {_,_monitor,:process,pid,_} ->
             observables=:maps.fold(fn(signal,whos,acc) ->
               if :lists.member(pid,whos) do
                 :sets.add_element(signal,acc)
@@ -250,20 +253,20 @@ defmodule Reactive.Entity do
 
     after
       container.lazy_time -> ## IF NO OBSERVERS THEN FREEZE
-        :io.format("entity try freezing ~p Container= ~p ~n",[Id,Container])
-        pid_observers_count = Maps.foldl(container.observers,0,fn (c,observers) ->
-          c + Enum.count(observers,fn
-              p when is_pid(p) -> true
-              _p -> false
-            end)
-        end)
+        :io.format("entity try freezing ~p Container= ~p ~n",[id,container])
+        pid_observers_count = :maps.fold(fn (_k,observers,c) ->
+                                                   c + Enum.count(observers,fn
+                                                       p when is_pid(p) -> true
+                                                       _p -> false
+                                                     end)
+                                                 end,0,container.observers)
         case pid_observers_count do
           0 ->
             case apply(module,:can_freeze,[state,container.observers]) do
               true ->
                 :io.format("entity freezing ~p Container= ~p ~n",[Id,Container])
                 apply(module,:save,[id,state,container])
-                :entities.report_frozen(Id)
+                :entities.report_frozen(id)
               false -> loop(module,id,state,container)
             end
           _ -> loop(module,id,state,container)
@@ -282,11 +285,11 @@ defmodule Reactive.Entity do
     nmonitors = case pid do
       p when is_pid(p) -> case :maps.find(pid,container.observers_monitors) do
                                  {:ok,_Monitor} -> container.observers_monitors; ## jeśli jest to nie ma sensu dodawać i remonitorować
-                                 :error -> :maps.put(pid,:erlang.monitor(:process,From),container.observers_monitors)
+                                 :error -> :maps.put(pid,:erlang.monitor(:process,pid),container.observers_monitors)
                                end
       _p -> container.observers_monitors
     end
-    nobservers=Map.update(container.observers,what,fn (x) -> [pid | x] end)
+    nobservers=Map.update(container.observers,what,[],fn (x) -> [pid | x] end)
     nstate=apply(module,:observe,[what,state,pid])
     {nstate,%{ container |
        observers: nobservers,
