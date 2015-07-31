@@ -34,7 +34,7 @@ defmodule Reactive.Entity do
   defcallback event(event :: term(), state::term(), from:: pid()) :: term()
 
   @doc "reacts to notification"
-  defcallback notify(from :: term(), what :: term(), state::term()) :: term()
+  defcallback notify(from :: term(), what :: term(), signal::term(), state::term()) :: term()
 
   @doc "reacts to other messages"
   defcallback info(message :: term(),state::term()) :: term()
@@ -108,6 +108,7 @@ defmodule Reactive.Entity do
         true
       end
       def request(_req,state,from,rid) do
+        :io.format("UNKNOWN REQUEST ~p IN STATE ~p ~n",[_req,state])
         throw "not implemented"
       end
       def event(event,state,from) do
@@ -122,15 +123,13 @@ defmodule Reactive.Entity do
       def save(id,state,container) do
         Reactive.Entities.save_entity(id,state,container)
       end
-      def notify(from, what , state) do
+      def notify(from, what ,data, state) do
         throw "not implemented"
       end
       def info(what , state) do
         :io.format("Unknown Message: ~p ~n",[what])
         throw "not implemented"
       end
-
-      defoverridable [observe: 3,unobserve: 3,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3]
 
       @spec observe(entity::entity_ref(), what::term()) :: entity_ref()
         def observe(entity,what) do
@@ -143,6 +142,8 @@ defmodule Reactive.Entity do
         send self(), {:unobserve_entity,entity,what}
         entity
       end
+
+      defoverridable [observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3, notify: 4]
 
       @spec save_me() :: :ok
       def save_me() do
@@ -181,17 +182,19 @@ defmodule Reactive.Entity do
     case apply(module,:retrive,[id]) do
       {:ok,
         %{state: state, container: container}} ->
-        :io.format("persistent_entity ~p retriven from DB ~n",[id])
-        :io.format("persistent_entity ~p started with pid ~p ~n",[id,self()])
+        #  :io.format("persistent_entity ~p retriven from DB ~n",[id])
+        #  :io.format("persistent_entity ~p started with pid ~p ~n",[id,self()])
 
         :erlang.process_flag(:trap_exit, :true)
         loop(module,id,state,container)
       :not_found ->
-        :io.format("persistent_entity ~p starting with call ~p : init ( ~p ) ~n",[id,module,args])
-        {:ok,state,_config} = apply(module,:init,[args])
+        # :io.format("persistent_entity ~p starting with call ~p : init ( ~p ) ~n",[id,module,args])
+        {:ok,state,config} = apply(module,:init,[args])
         ## TODO: initialize container with config
-        container=%Container{}
-        :io.format("persistent_entity ~p started with pid ~p ~n",[id,self()])
+        container=%Container{
+          lazy_time: Map.get(config,:lazy_time,30_000)
+        }
+        # :io.format("persistent_entity ~p started with pid ~p ~n",[id,self()])
         :erlang.process_flag(:trap_exit, :true)
         loop(module,id,state,container)
     end
@@ -200,7 +203,7 @@ defmodule Reactive.Entity do
   defp loop(module,id,state,container) do
     receive do
       {:event,event,from} ->
-        newState = apply(module,event,[event,state,from])
+        newState = apply(module,:event,[event,state,from])
         loop(module,id,newState,container)
 
       {:request,rid,event,from} ->
@@ -212,7 +215,8 @@ defmodule Reactive.Entity do
             loop(module,id,newState,container)
         end
       {:notify,from,what,data} ->
-        newState=apply(module,:notify,[from,what,data])
+        #:io.format("RECV NOTIFY ~p . ~p => ~p : ~p ~na",[from,what,id,data])
+        newState=apply(module,:notify,[from,what,data,state])
         loop(module,id,newState,container)
       {:save} -> apply(module,:save,[id,state,container])
                  loop(module,id,state,container)
@@ -224,12 +228,14 @@ defmodule Reactive.Entity do
                 acc
               end
             end,:sets.new(),container.observers)
+          #   :io.format("AUTOMATIC UNOBSERVE ~p ~n",[[observables,pid,module,id,state,container]])
             {nstate,ncontainer}=handle_unobserve(observables,pid,module,id,state,container)
             loop(module,id,nstate,ncontainer)
 
       {:notify_observers,what,data} ->
-        signalObservers=Maps.get(what,container.observers,[])
-        :list.foreach(fn(observer) -> sendToEntity observer, {:notify,id,what,data} end, signalObservers)
+        signalObservers=Map.get(container.observers,what,[])
+        # :io.format("NOTIFY OBSERVERS ~p . ~p => ~p : ~p ~na",[id,what,signalObservers,data])
+        :lists.foreach(fn(observer) -> sendToEntity observer, {:notify,id,what,data} end, signalObservers)
         loop(module,id,state,container)
       {:notify_one_observer,observer,what,data} ->
         sendToEntity observer, {:notify,id,what,data}
@@ -253,7 +259,7 @@ defmodule Reactive.Entity do
 
     after
       container.lazy_time -> ## IF NO OBSERVERS THEN FREEZE
-        :io.format("entity try freezing ~p Container= ~p ~n",[id,container])
+        # :io.format("entity try freezing ~p Container= ~p ~n",[id,container])
         pid_observers_count = :maps.fold(fn (_k,observers,c) ->
                                                    c + Enum.count(observers,fn
                                                        p when is_pid(p) -> true
@@ -264,9 +270,9 @@ defmodule Reactive.Entity do
           0 ->
             case apply(module,:can_freeze,[state,container.observers]) do
               true ->
-                :io.format("entity freezing ~p Container= ~p ~n",[Id,Container])
+               # :io.format("entity freezing ~p Container= ~p ~n",[id,container])
                 apply(module,:save,[id,state,container])
-                :entities.report_frozen(id)
+                Reactive.Entities.report_frozen(id)
               false -> loop(module,id,state,container)
             end
           _ -> loop(module,id,state,container)
@@ -276,12 +282,12 @@ defmodule Reactive.Entity do
 
   defp handle_observe(what,pid,module,id,state,container) do
     if :sets.is_set(what) do
-      :sets.to_list(what) |> List.foldl({state,container},fn(s,c) -> handle_observe(what,pid,module,id,s,c) end )
+      :sets.to_list(what) |> List.foldl({state,container},fn(w,{s,c}) -> handle_observe(w,pid,module,id,s,c) end )
     else
       handle_observe_impl(what,pid,module,id,state,container)
     end
   end
-  defp handle_observe_impl(what,pid,module,_id,state,container) do
+  defp handle_observe_impl(what,pid,module,id,state,container) do
     nmonitors = case pid do
       p when is_pid(p) -> case :maps.find(pid,container.observers_monitors) do
                                  {:ok,_Monitor} -> container.observers_monitors; ## jeśli jest to nie ma sensu dodawać i remonitorować
@@ -289,26 +295,41 @@ defmodule Reactive.Entity do
                                end
       _p -> container.observers_monitors
     end
-    nobservers=Map.update(container.observers,what,[],fn (x) -> [pid | x] end)
-    nstate=apply(module,:observe,[what,state,pid])
-    {nstate,%{ container |
-       observers: nobservers,
-       observers_monitors: nmonitors
-     }}
+    nobservers=Map.update(container.observers,what,[pid],fn (x) -> [pid | x] end)
+    oresult=apply(module,:observe,[what,state,pid])
+
+    case oresult do
+      {:ok,nstate} ->
+        {nstate,%{ container |
+          observers: nobservers,
+          observers_monitors: nmonitors
+        }}
+      :not_allowed ->
+        sendToEntity pid, {:notify,id,what,:not_allowed}
+        {state,container}
+      {:reply,signal,nstate} ->
+        sendToEntity pid, {:notify,id,what,signal}
+        {nstate,%{ container |
+          observers: nobservers,
+          observers_monitors: nmonitors
+        }}
+    end
   end
 
   defp handle_unobserve(what,pid,module,id,state,container) do
+    #:io.format("UNOBSERVE ~p ~p ~p ~n",[what,state,pid])
     if :sets.is_set(what) do
-      :sets.to_list(what) |> List.foldl({state,container},fn(s,c) -> handle_unobserve_impl(what,pid,module,id,s,c) end )
+      :sets.to_list(what) |> List.foldl({state,container},fn(w,{s,c}) -> handle_unobserve_impl(w,pid,module,id,s,c) end )
     else
       handle_unobserve_impl(what,pid,module,id,state,container)
     end
   end
   defp handle_unobserve_impl(what,pid,module,_id,state,container) do
+    # :io.format("UNOBSERVE IMPL ~p ~p ~p ~p ~n",[{_id,what},state,pid,container])
     nstate=apply(module,:unobserve,[what,state,pid])
     observers=container.observers
     currentObservers=Map.get(observers,what,[])
-    newObservers=List.filter(currentObservers,fn(observer) -> observer !== pid end)
+    newObservers=Enum.filter(currentObservers,fn(observer) -> observer !== pid end)
     nobservers = case NewObservers do
                 [] -> Map.remove(observers)
                 _ -> Map.put(observers,what,newObservers)
@@ -319,18 +340,20 @@ defmodule Reactive.Entity do
         needMonitor=:maps.fold( ## Determines  demonitor!
             fn(_signal,observers,acc) ->
               any=:lists.any(fn(observer) -> observer==pid end,observers)
-          #    io:format("DEMONITOR ?! ~p ~p ~p ~n",[From,Observers,Any]),
+         #     :io.format("DEMONITOR ?! ~p ~p ~p ~p ~n",[{_id,what},pid,observers,any])
               acc or any
-            end,false,nobservers)
-               # io:format("DEMONITOR ~p ~n",[NeedMonitor]),
+            end,false,observers)
+         #       :io.format("DEMONITOR ~p ~n",[needMonitor])
             case needMonitor do
               false -> %{ container |
                 observers: nobservers ## no demonitor
               }
               true -> ## demonitor haha
-             #   io:format("DEMONITOR!!!"),
-                monitor=Map.get(container.observers_monitors,pid)
-                :erlang.demonitor(monitor)
+          #      :io.format("DEMONITOR!!!")
+                case Map.get(container.observers_monitors,pid) do
+                  :nil -> 0
+                  monitor -> :erlang.demonitor(monitor)
+                end
                 %{  container |
                   observers: nobservers,
                   observers_monitors: :maps.remove(pid,container.observers_monitors) # remove monitor

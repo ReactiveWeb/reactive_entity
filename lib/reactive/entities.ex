@@ -7,11 +7,11 @@ defmodule Reactive.Entities do
     :ets.insert(__MODULE__,{:store,store})
   end
 
-  @spec get_entity(Id::entity_id()) :: pid()
+  @spec get_entity(id::entity_id()) :: pid()
   def get_entity(id = [module | args]) do
-    :io.format("get_entity called with ~p ~n",[id])
-    lr=:ets.lookup(__MODULE__,Id)
-    :io.format("entity lookup ~p = ~p ~n",[id,lr])
+   ## :io.format("get_entity called with ~p ~n",[id])
+    lr=:ets.lookup(__MODULE__,id)
+   ## :io.format("entity lookup ~p = ~p ~n",[id,lr])
 
     case lr do
       [{^id,:existing,pid}] -> pid
@@ -48,7 +48,13 @@ defmodule Reactive.Entities do
 
   def save_entity(id,state,container) do
     [{:store,store}]=:ets.lookup(__MODULE__,:store)
-    data=:erlang.term_to_binary(%{ :state => state, :container => container })
+    cleanObservers=:maps.map(fn(k,v) -> Enum.filter(v,
+             fn
+               (p) when is_pid(p) -> false
+               _ -> true
+             end ) end, container.observers)
+    cleanContainer=%{container | observers: cleanObservers, observers_monitors: %{} }
+    data=:erlang.term_to_binary(%{ :state => state, :container => cleanContainer })
     :eleveldb.put(store,entity_db_id(id),data,[]);
   end
 
