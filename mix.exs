@@ -32,6 +32,6 @@ defmodule ReactiveEntity.Mixfile do
   #
   # Type `mix help deps` for more examples and options
   defp deps do
-    [{:eleveldb, github: "basho/eleveldb", tag: "2.1.0"}]
+    [{:eleveldb, github: "basho/eleveldb", tag: "2.1.3"}]
   end
 end
