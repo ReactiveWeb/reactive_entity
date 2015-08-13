@@ -16,6 +16,9 @@ defmodule Reactive.Entity do
   @doc "inits started module"
   defcallback init(args :: list(term())) :: {:ok, state::term()} | {:error, error::term()}
 
+  @doc "returns current version"
+  defcallback version() :: state::term()
+
   @doc "converts module state to new version"
   defcallback convert(old_vsn :: term(), state :: term()) :: state::term()
 
@@ -99,7 +102,7 @@ defmodule Reactive.Entity do
       @type entity_ref() :: entity_id() | pid()
 
       def observe(_what,state,_from) do
-        state
+        {:ok,state}
       end
       def unobserve(_what,state,_from) do
         state
@@ -114,7 +117,10 @@ defmodule Reactive.Entity do
       def event(event,state,from) do
         throw "not implemented"
       end
-      def convert(_oldvsn,state) do
+      def version() do
+        0
+      end
+      def convert(:not_a_version,state) do
         state
       end
       def retrive(id) do
@@ -170,7 +176,7 @@ defmodule Reactive.Entity do
   ## GEARS:
 
   defmodule Container do
-    defstruct lazy_time: 30_000, observers: %{}, observers_monitors: %{}
+    defstruct lazy_time: 30_000, observers: %{}, observers_monitors: %{}, version: 0
   end
 
   def start(module,args) do
@@ -179,7 +185,14 @@ defmodule Reactive.Entity do
 
   def start_loop(module,args) do
     id=[module | args]
-    case apply(module,:retrive,[id]) do
+    rres = try do
+              apply(module,:retrive,[id])
+            rescue
+              e ->
+                :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+                :not_found
+            end
+    case rres do
       {:ok,
         %{state: state, container: container}} ->
         #  :io.format("persistent_entity ~p retriven from DB ~n",[id])
@@ -192,7 +205,8 @@ defmodule Reactive.Entity do
         {:ok,state,config} = apply(module,:init,[args])
         ## TODO: initialize container with config
         container=%Container{
-          lazy_time: Map.get(config,:lazy_time,30_000)
+          lazy_time: Map.get(config,:lazy_time,30_000),
+          version: apply(module,:version,[])
         }
         # :io.format("persistent_entity ~p started with pid ~p ~n",[id,self()])
         :erlang.process_flag(:trap_exit, :true)
@@ -203,23 +217,47 @@ defmodule Reactive.Entity do
   defp loop(module,id,state,container) do
     receive do
       {:event,event,from} ->
-        newState = apply(module,:event,[event,state,from])
+        newState = try do
+          apply(module,:event,[event,state,from])
+        rescue
+          e ->
+            :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+            state
+        end
         loop(module,id,newState,container)
-
       {:request,rid,event,from} ->
-        case apply(module,:request,[event,state,from,rid]) do
+        res=try do
+          apply(module,:request,[event,state,from,rid])
+        rescue
+          e ->
+            :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+            {:error,e}
+        end
+        case res do
           {:reply,reply,newState} ->
             sendToEntity from, {:response,rid,reply}
             loop(module,id,newState,container)
+          {:error,reply} ->
+            sendToEntity from, {:error,rid,reply}
+            loop(module,id,state,container)
           {:noreply,newState} ->
             loop(module,id,newState,container)
         end
       {:notify,from,what,data} ->
         #:io.format("RECV NOTIFY ~p . ~p => ~p : ~p ~na",[from,what,id,data])
-        newState=apply(module,:notify,[from,what,data,state])
+        newState=try do
+                  apply(module,:notify,[from,what,data,state])
+                rescue
+                  e ->
+                    :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+                    state
+                end
         loop(module,id,newState,container)
-      {:save} -> apply(module,:save,[id,state,container])
-                 loop(module,id,state,container)
+      {:save} ->
+        case apply(module,:save,[id,state,container]) do
+          {:update_container,ncontainer} -> loop(module,id,state,ncontainer)
+          _ -> loop(module,id,state,container)
+        end
       {_,_monitor,:process,pid,_} ->
             observables=:maps.fold(fn(signal,whos,acc) ->
               if :lists.member(pid,whos) do
@@ -231,7 +269,6 @@ defmodule Reactive.Entity do
           #   :io.format("AUTOMATIC UNOBSERVE ~p ~n",[[observables,pid,module,id,state,container]])
             {nstate,ncontainer}=handle_unobserve(observables,pid,module,id,state,container)
             loop(module,id,nstate,ncontainer)
-
       {:notify_observers,what,data} ->
         signalObservers=Map.get(container.observers,what,[])
         # :io.format("NOTIFY OBSERVERS ~p . ~p => ~p : ~p ~na",[id,what,signalObservers,data])
@@ -269,11 +306,11 @@ defmodule Reactive.Entity do
         case pid_observers_count do
           0 ->
             case apply(module,:can_freeze,[state,container.observers]) do
-              true ->
+              :true ->
                # :io.format("entity freezing ~p Container= ~p ~n",[id,container])
                 apply(module,:save,[id,state,container])
                 Reactive.Entities.report_frozen(id)
-              false -> loop(module,id,state,container)
+              :false -> loop(module,id,state,container)
             end
           _ -> loop(module,id,state,container)
         end
