@@ -1,5 +1,6 @@
 defmodule Reactive.Entity do
   use Behaviour
+  require Logger
 
   @type entity_id() :: list(term())
   @type entity_ref() :: entity_id() | pid()
@@ -70,6 +71,7 @@ defmodule Reactive.Entity do
     sendToEntity entity, {:request,id,req,self()}
     receive do
       {:response,^id,response} -> response
+      {:error,^id,error} -> raise error
     end
   end
 
@@ -79,6 +81,7 @@ defmodule Reactive.Entity do
     sendToEntity entity, {:request,id,req,self()}
     receive do
       {:response,_id,response} -> response
+      {:error,^id,error} -> raise error
     after
       timeout -> :timeout
     end
@@ -221,7 +224,9 @@ defmodule Reactive.Entity do
           apply(module,:event,[event,state,from])
         rescue
           e ->
-            :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+            st=:erlang.get_stacktrace()
+            Logger.error("Error #{inspect e} in #{inspect st} ~n")
+            :io.format("Error ~p in ~p ~n",[e,st])
             state
         end
         loop(module,id,newState,container)
@@ -230,9 +235,12 @@ defmodule Reactive.Entity do
           apply(module,:request,[event,state,from,rid])
         rescue
           e ->
-            :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+            st=:erlang.get_stacktrace()
+            Logger.error("Error #{inspect e} in #{inspect st} ~n")
+            :io.format("Error ~p in ~p ~n",[e,st])
             {:error,e}
         end
+        Logger.debug("REQ r #{inspect res}")
         case res do
           {:reply,reply,newState} ->
             sendToEntity from, {:response,rid,reply}
@@ -244,7 +252,7 @@ defmodule Reactive.Entity do
             loop(module,id,newState,container)
         end
       {:notify,from,what,data} ->
-        #:io.format("RECV NOTIFY ~p . ~p => ~p : ~p ~na",[from,what,id,data])
+      ##  :io.format("RECV NOTIFY ~p . ~p => ~p : ~p ~na",[from,what,id,data])
         newState=try do
                   apply(module,:notify,[from,what,data,state])
                 rescue
@@ -271,6 +279,7 @@ defmodule Reactive.Entity do
             loop(module,id,nstate,ncontainer)
       {:notify_observers,what,data} ->
         signalObservers=Map.get(container.observers,what,[])
+        # Logger.debug("Notify observers #{inspect id}.#{inspect what} =#{inspect data}> #{inspect signalObservers}")
         # :io.format("NOTIFY OBSERVERS ~p . ~p => ~p : ~p ~na",[id,what,signalObservers,data])
         :lists.foreach(fn(observer) -> sendToEntity observer, {:notify,id,what,data} end, signalObservers)
         loop(module,id,state,container)
