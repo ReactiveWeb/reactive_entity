@@ -40,32 +40,46 @@ defmodule Reactive.Entities do
     :ets.delete(__MODULE__,id)
   end
 
-  defp entity_db_id(_id=[module | args]) do
+  def entity_db_id(_id=[module | args]) do
     IO.inspect(args)
     argss =  Enum.map( args , fn ( x ) ->  [ :erlang.term_to_binary( x ), ","] end )
     :erlang.iolist_to_binary( ["e:",:erlang.atom_to_list(module),":",argss ] )
   end
 
   def save_entity(id,state,container) do
-    [{:store,store}]=:ets.lookup(__MODULE__,:store)
     cleanObservers=:maps.map(fn(k,v) -> Enum.filter(v,
              fn
                (p) when is_pid(p) -> false
                _ -> true
              end ) end, container.observers)
     cleanContainer=%{container | observers: cleanObservers, observers_monitors: %{} }
-    data=:erlang.term_to_binary(%{ :state => state, :container => cleanContainer })
-    :eleveldb.put(store,entity_db_id(id),data,[]);
+    store(id,%{ :state => state, :container => cleanContainer })
   end
 
   def retrive_entity(id) do
-    [{:store,store}]=:ets.lookup(__MODULE__,:store)
-    case :eleveldb.get(store,entity_db_id(id),[]) do
-      {:ok, binary} -> {:ok,:erlang.binary_to_term(binary)}
-      not_found -> not_found
+    retrive(id)
+  end
+
+  defp store(id=[m|a],data) do
+    case :ets.lookup(__MODULE__,{:store,m}) do
+      [{{:store,^m},{read,write}}] -> write.(id,data)
+      [] ->
+        [{:store,store}]=:ets.lookup(__MODULE__,:store)
+        sdata=:erlang.term_to_binary(data)
+        :eleveldb.put(store,entity_db_id(id),sdata,[]);
     end
   end
 
-
+  defp retrive(id=[m|a]) do
+    case :ets.lookup(__MODULE__,{:store,m}) do
+      [{{:store,^m},{read,write}}] -> read.(id)
+      _ ->
+        [{:store,store}]=:ets.lookup(__MODULE__,:store)
+        case :eleveldb.get(store,entity_db_id(id),[]) do
+          {:ok, binary} -> {:ok,:erlang.binary_to_term(binary)}
+          not_found -> not_found
+        end
+    end
+  end
 
 end
