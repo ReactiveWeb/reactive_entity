@@ -3,7 +3,8 @@ defmodule Reactive.Entities do
 
   def init(config) do
     :ets.new(__MODULE__, [:named_table, :public, :set, {:keypos, 1}])
-    {:ok,store}=:eleveldb.open(Map.get(config,:store_filename,"entities") |> to_char_list, [create_if_missing: true])
+    #{:ok,store}=:eleveldb.open(Map.get(config,:store_filename,"entities") |> to_char_list, [create_if_missing: true])
+    store=Reactive.LocalDb.open(Path.expand(Map.get(config,:store_filename,"entities")))
     :ets.insert(__MODULE__,{:store,store})
   end
 
@@ -40,11 +41,11 @@ defmodule Reactive.Entities do
     :ets.delete(__MODULE__,id)
   end
 
-  def entity_db_id(_id=[module | args]) do
-    IO.inspect(args)
-    argss =  Enum.map( args , fn ( x ) ->  [ :erlang.term_to_binary( x ), ","] end )
-    :erlang.iolist_to_binary( ["e:",:erlang.atom_to_list(module),":",argss ] )
-  end
+ # def entity_db_id(_id=[module | args]) do
+ #   IO.inspect(args)
+ #   argss =  Enum.map( args , fn ( x ) ->  [ :erlang.term_to_binary( x ), ","] end )
+ #   :erlang.iolist_to_binary( ["e:",:erlang.atom_to_list(module),":",argss ] )
+ # end
 
   def save_entity(id,state,container) do
     cleanObservers=:maps.map(fn(k,v) -> Enum.filter(v,
@@ -60,13 +61,19 @@ defmodule Reactive.Entities do
     retrive(id)
   end
 
+  def get_db() do
+    [{:store,store}]=:ets.lookup(__MODULE__,:store)
+    store
+  end
+
   defp store(id=[m|a],data) do
     case :ets.lookup(__MODULE__,{:store,m}) do
       [{{:store,^m},{read,write}}] -> write.(id,data)
       [] ->
-        [{:store,store}]=:ets.lookup(__MODULE__,:store)
-        sdata=:erlang.term_to_binary(data)
-        :eleveldb.put(store,entity_db_id(id),sdata,[]);
+        store=get_db()
+        #sdata=:erlang.term_to_binary(data)
+        #:eleveldb.put(store,entity_db_id(id),sdata,[]);
+        Reactive.EntitiesDb.store(store,id,data)
     end
   end
 
@@ -74,11 +81,13 @@ defmodule Reactive.Entities do
     case :ets.lookup(__MODULE__,{:store,m}) do
       [{{:store,^m},{read,write}}] -> read.(id)
       _ ->
-        [{:store,store}]=:ets.lookup(__MODULE__,:store)
-        case :eleveldb.get(store,entity_db_id(id),[]) do
-          {:ok, binary} -> {:ok,:erlang.binary_to_term(binary)}
-          not_found -> not_found
-        end
+        store=get_db()
+        #case :eleveldb.get(store,entity_db_id(id),[]) do
+        #  {:ok, binary} -> {:ok,:erlang.binary_to_term(binary)}
+        #  not_found -> not_found
+        #end
+
+        Reactive.EntitiesDb.retrive(store,id)
     end
   end
 
