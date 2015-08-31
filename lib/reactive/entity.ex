@@ -240,7 +240,7 @@ defmodule Reactive.Entity do
             :io.format("Error ~p in ~p ~n",[e,st])
             {:error,e}
         end
-        Logger.debug("REQ r #{inspect res}")
+    #    Logger.debug("REQ r #{inspect res}")
         case res do
           {:reply,reply,newState} ->
             sendToEntity from, {:response,rid,reply}
@@ -262,6 +262,7 @@ defmodule Reactive.Entity do
                 end
         loop(module,id,newState,container)
       {:save} ->
+        #Logger.info("SAVE Entity #{inspect id}")
         case apply(module,:save,[id,state,container]) do
           {:update_container,ncontainer} -> loop(module,id,state,ncontainer)
           _ -> loop(module,id,state,container)
