@@ -53,6 +53,22 @@ defmodule Reactive.Entity do
     sendToEntity Reactive.Entities.get_entity(entity), msg
   end
 
+  def exists([module | args]=id) do
+    rres = try do
+              apply(module,:retrive,[id])
+            rescue
+              e ->
+                :not_found
+            end
+    case rres do
+      {:ok, %{state: state, container: container}} ->
+        Reactive.Entities.create_entity(id,state,container)
+        true
+      :not_found ->
+        false
+    end
+  end
+
   @spec observe(entity::entity_ref(), what::term(), by::entity_ref()) :: entity_ref()
   def observe(entity,what,by \\ self()) do
     sendToEntity entity, {:observe,what,by}
@@ -184,6 +200,9 @@ defmodule Reactive.Entity do
 
   def start(module,args) do
     spawn(__MODULE__,:start_loop,[module,args])
+  end
+  def start(module,args,state,container) do
+    spawn(__MODULE__,:loop,[module,args,state,container])
   end
 
   def start_loop(module,args) do

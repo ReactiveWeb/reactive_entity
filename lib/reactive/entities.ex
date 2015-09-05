@@ -26,6 +26,25 @@ defmodule Reactive.Entities do
     end
   end
 
+  def create_entity(id = [module | args],state,container) do
+   ## :io.format("get_entity called with ~p ~n",[id])
+    lr=:ets.lookup(__MODULE__,id)
+   ## :io.format("entity lookup ~p = ~p ~n",[id,lr])
+
+    case lr do
+      [{^id,:existing,pid}] -> pid
+      [{^id,:starting}] -> receive do
+                          after
+                            23 -> create_entity(id,state,container)
+                          end
+      [] ->
+        :ets.insert(__MODULE__,{id,:starting})
+        pid=Reactive.Entity.start(module,args,state,container)
+        :ets.insert(__MODULE__,{id,:existing,pid})
+        pid
+    end
+  end
+
   def is_entity_running(id = [_module | _args]) do
     lr=:ets.lookup(__MODULE__,id)
     case lr do
