@@ -226,7 +226,7 @@ defmodule Reactive.Entity do
           e ->
             st=:erlang.get_stacktrace()
             Logger.error("Error #{inspect e} in #{inspect st} ~n")
-            :io.format("Error ~p in ~p ~n",[e,st])
+            #:io.format("Error ~p in ~p ~n",[e,st])
             state
         end
         loop(module,id,newState,container)
@@ -237,7 +237,7 @@ defmodule Reactive.Entity do
           e ->
             st=:erlang.get_stacktrace()
             Logger.error("Error #{inspect e} in #{inspect st} ~n")
-            :io.format("Error ~p in ~p ~n",[e,st])
+            #:io.format("Error ~p in ~p ~n",[e,st])
             {:error,e}
         end
     #    Logger.debug("REQ r #{inspect res}")

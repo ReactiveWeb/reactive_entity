@@ -10,9 +10,7 @@ defmodule Reactive.Entities do
 
   @spec get_entity(id::entity_id()) :: pid()
   def get_entity(id = [module | args]) do
-   ## :io.format("get_entity called with ~p ~n",[id])
     lr=:ets.lookup(__MODULE__,id)
-   ## :io.format("entity lookup ~p = ~p ~n",[id,lr])
 
     case lr do
       [{^id,:existing,pid}] -> pid
@@ -41,11 +39,6 @@ defmodule Reactive.Entities do
     :ets.delete(__MODULE__,id)
   end
 
- # def entity_db_id(_id=[module | args]) do
- #   IO.inspect(args)
- #   argss =  Enum.map( args , fn ( x ) ->  [ :erlang.term_to_binary( x ), ","] end )
- #   :erlang.iolist_to_binary( ["e:",:erlang.atom_to_list(module),":",argss ] )
- # end
 
   def save_entity(id,state,container) do
     cleanObservers=:maps.map(fn(k,v) -> Enum.filter(v,
