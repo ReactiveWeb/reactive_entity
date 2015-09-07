@@ -361,7 +361,10 @@ defmodule Reactive.Entity do
                                end
       _p -> container.observers_monitors
     end
-    nobservers=Map.update(container.observers,what,[pid],fn (x) -> [pid | x] end)
+    nobservers=Map.update(container.observers,what,[pid],fn (x) ->
+      y = Enum.filter(x,fn(z) -> z != pid end) # don't let double observation!
+      [pid | y]
+    end)
     oresult=apply(module,:observe,[what,state,pid])
 
     case oresult do
