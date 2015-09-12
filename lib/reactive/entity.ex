@@ -55,11 +55,11 @@ defmodule Reactive.Entity do
 
   def exists([module | args]=id) do
     rres = try do
-              apply(module,:retrive,[id])
-            rescue
-              e ->
-                :not_found
-            end
+             apply(module,:retrive,[id])
+           rescue
+             e ->
+               :not_found
+           end
     case rres do
       {:ok, %{state: state, container: container}} ->
         Reactive.Entities.create_entity(id,state,container)
@@ -79,6 +79,28 @@ defmodule Reactive.Entity do
   def unobserve(entity,what,by \\ self()) do
     sendToEntity entity, {:unobserve,what,by}
     entity
+  end
+
+  @spec get(entity::entity_ref(), what::term()) :: term()
+  def get(entity,what) do
+    id=:erlang.make_ref()
+    sendToEntity entity, {:get,id,what,self()}
+    receive do
+      {:response,^id,response} -> response
+      {:error,^id,error} -> raise error
+    end
+  end
+
+  @spec get(entity::entity_ref(), what::term(), timeout::number()) :: term()
+  def get(entity,what,timeout) do
+    id=:erlang.make_ref()
+    sendToEntity entity, {:get,id,what,self()}
+    receive do
+      {:response,^id,response} -> response
+      {:error,^id,error} -> raise error
+    after
+      timeout -> :timeout
+    end
   end
 
   @spec request(entity::entity_ref(), req::term()) :: term()
@@ -120,8 +142,13 @@ defmodule Reactive.Entity do
       @type entity_id() :: list(term())
       @type entity_ref() :: entity_id() | pid()
 
-      def observe(_what,state,_from) do
-        {:ok,state}
+      def get(what,state) do
+        :io.format("Unknown Get: ~p ~n",[what])
+        raise "not implemented"
+      end
+      def observe(what,state,_pid) do
+        {:reply,value,nstate}=get(what,state)
+        {:reply,{:set,[value]},nstate}
       end
       def unobserve(_what,state,_from) do
         state
@@ -131,10 +158,10 @@ defmodule Reactive.Entity do
       end
       def request(_req,state,from,rid) do
         :io.format("UNKNOWN REQUEST ~p IN STATE ~p ~n",[_req,state])
-        throw "not implemented"
+        raise "not implemented"
       end
       def event(event,state,from) do
-        throw "not implemented"
+        raise "not implemented"
       end
       def version() do
         0
@@ -153,7 +180,7 @@ defmodule Reactive.Entity do
       end
       def info(what , state) do
         :io.format("Unknown Message: ~p ~n",[what])
-        throw "not implemented"
+        raise "not implemented"
       end
 
       @spec observe(entity::entity_ref(), what::term()) :: entity_ref()
@@ -168,7 +195,7 @@ defmodule Reactive.Entity do
         entity
       end
 
-      defoverridable [observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3, notify: 4]
+      defoverridable [get: 2, observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3, notify: 4]
 
       @spec save_me() :: :ok
       def save_me() do
@@ -224,7 +251,15 @@ defmodule Reactive.Entity do
         loop(module,id,state,container)
       :not_found ->
         # :io.format("persistent_entity ~p starting with call ~p : init ( ~p ) ~n",[id,module,args])
-        {:ok,state,config} = apply(module,:init,[args])
+        {:ok,state,config} = try do
+          apply(module,:init,[args])
+        rescue
+          e ->
+            st=:erlang.get_stacktrace()
+            Logger.error("Error #{inspect e} in #{inspect st} ~n")
+            #:io.format("Error ~p in ~p ~n",[e,st])
+            raise e
+        end
         ## TODO: initialize container with config
         container=%Container{
           lazy_time: Map.get(config,:lazy_time,30_000),
@@ -315,6 +350,17 @@ defmodule Reactive.Entity do
       {:observe,what,pid} ->
         {nstate,ncontainer}=handle_observe(what,pid,module,id,state,container)
         loop(module,id,nstate,ncontainer)
+      {:get,rid,what,pid} ->
+        {reply,nstate}=try do
+          {:reply,value,state}=apply(module,:get,[what,state])
+          {{:response,rid,value},state}
+        rescue
+          e ->
+            :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+            {{:error,rid,e},state}
+        end
+        sendToEntity pid, reply
+        loop(module,id,nstate,container)
       {:unobserve,what,pid} ->
         {nstate,ncontainer}=handle_unobserve(what,pid,module,id,state,container)
         loop(module,id,nstate,ncontainer)
