@@ -55,11 +55,11 @@ defmodule Reactive.Entity do
 
   def exists([module | args]=id) do
     rres = try do
-              apply(module,:retrive,[id])
-            rescue
-              e ->
-                :not_found
-            end
+             apply(module,:retrive,[id])
+           rescue
+             e ->
+               :not_found
+           end
     case rres do
       {:ok, %{state: state, container: container}} ->
         Reactive.Entities.create_entity(id,state,container)
@@ -251,7 +251,15 @@ defmodule Reactive.Entity do
         loop(module,id,state,container)
       :not_found ->
         # :io.format("persistent_entity ~p starting with call ~p : init ( ~p ) ~n",[id,module,args])
-        {:ok,state,config} = apply(module,:init,[args])
+        {:ok,state,config} = try do
+          apply(module,:init,[args])
+        rescue
+          e ->
+            st=:erlang.get_stacktrace()
+            Logger.error("Error #{inspect e} in #{inspect st} ~n")
+            #:io.format("Error ~p in ~p ~n",[e,st])
+            raise e
+        end
         ## TODO: initialize container with config
         container=%Container{
           lazy_time: Map.get(config,:lazy_time,30_000),
@@ -342,7 +350,7 @@ defmodule Reactive.Entity do
       {:observe,what,pid} ->
         {nstate,ncontainer}=handle_observe(what,pid,module,id,state,container)
         loop(module,id,nstate,ncontainer)
-      {:get,what,rid,pid} ->
+      {:get,rid,what,pid} ->
         {reply,nstate}=try do
           {:reply,value,state}=apply(module,:get,[what,state])
           {{:response,rid,value},state}
