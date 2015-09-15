@@ -81,6 +81,28 @@ defmodule Reactive.Entity do
     entity
   end
 
+  @spec get(entity::entity_ref(), what::term()) :: term()
+  def get(entity,what) do
+    id=:erlang.make_ref()
+    sendToEntity entity, {:get,id,what,self()}
+    receive do
+      {:response,^id,response} -> response
+      {:error,^id,error} -> raise error
+    end
+  end
+
+  @spec get(entity::entity_ref(), what::term(), timeout::number()) :: term()
+  def get(entity,what,timeout) do
+    id=:erlang.make_ref()
+    sendToEntity entity, {:get,id,what,self()}
+    receive do
+      {:response,^id,response} -> response
+      {:error,^id,error} -> raise error
+    after
+      timeout -> :timeout
+    end
+  end
+
   @spec request(entity::entity_ref(), req::term()) :: term()
   def request(entity,req) do
     id=:erlang.make_ref()
@@ -120,8 +142,13 @@ defmodule Reactive.Entity do
       @type entity_id() :: list(term())
       @type entity_ref() :: entity_id() | pid()
 
-      def observe(_what,state,_from) do
-        {:ok,state}
+      def get(what,state) do
+        :io.format("Unknown Get: ~p ~n",[what])
+        raise "not implemented"
+      end
+      def observe(what,state,_pid) do
+        {:reply,value,nstate}=get(what,state)
+        {:reply,{:set,[value]},nstate}
       end
       def unobserve(_what,state,_from) do
         state
@@ -131,10 +158,10 @@ defmodule Reactive.Entity do
       end
       def request(_req,state,from,rid) do
         :io.format("UNKNOWN REQUEST ~p IN STATE ~p ~n",[_req,state])
-        throw "not implemented"
+        raise "not implemented"
       end
       def event(event,state,from) do
-        throw "not implemented"
+        raise "not implemented"
       end
       def version() do
         0
@@ -153,7 +180,7 @@ defmodule Reactive.Entity do
       end
       def info(what , state) do
         :io.format("Unknown Message: ~p ~n",[what])
-        throw "not implemented"
+        raise "not implemented"
       end
 
       @spec observe(entity::entity_ref(), what::term()) :: entity_ref()
@@ -168,7 +195,7 @@ defmodule Reactive.Entity do
         entity
       end
 
-      defoverridable [observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3, notify: 4]
+      defoverridable [get: 2, observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3, notify: 4]
 
       @spec save_me() :: :ok
       def save_me() do
@@ -315,6 +342,17 @@ defmodule Reactive.Entity do
       {:observe,what,pid} ->
         {nstate,ncontainer}=handle_observe(what,pid,module,id,state,container)
         loop(module,id,nstate,ncontainer)
+      {:get,what,rid,pid} ->
+        {reply,nstate}=try do
+          {:reply,value,state}=apply(module,:get,[what,state])
+          {{:response,rid,value},state}
+        rescue
+          e ->
+            :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+            {{:error,rid,e},state}
+        end
+        sendToEntity pid, reply
+        loop(module,id,nstate,container)
       {:unobserve,what,pid} ->
         {nstate,ncontainer}=handle_unobserve(what,pid,module,id,state,container)
         loop(module,id,nstate,ncontainer)
@@ -434,6 +472,11 @@ defmodule Reactive.Entity do
     end
 
     {nstate,ncontainer}
+  end
+
+  def timestamp() do
+    {megasecs,secs,microsecs} =  :os.timestamp()
+    megasecs*1_000_000_000+secs*1_000+div(microsecs,1_000)
   end
 
 end

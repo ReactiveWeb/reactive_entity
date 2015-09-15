@@ -58,7 +58,6 @@ defmodule Reactive.Entities do
     :ets.delete(__MODULE__,id)
   end
 
-
   def save_entity(id,state,container) do
     cleanObservers=:maps.map(fn(k,v) -> Enum.filter(v,
              fn
