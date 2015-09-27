@@ -5,14 +5,21 @@ defmodule Reactive.LogEntity do
       use Reactive.Entity
 
       def retrive(id) do
-        %{state: state, container: container} = Entities.retrive_entity(id)
-        nstate=Map.put(state,:log,Reactive.LogsDb.create(Reactive.Entities.get_db(),id <> ".log"))
-        %{state: nstate, container: container}
+        case Reactive.Entities.retrive_entity(id) do
+          :not_found -> :not_found
+          {:ok,%{state: state, container: container}} ->
+             logId = Reactive.EntitiesDb.entity_db_id(id) <> ".log"
+             nstate=Map.put(state,:log,Reactive.LogsDb.create(Reactive.Entities.get_db(),logId))
+             {:ok,%{state: nstate, container: container}}
+        end
       end
 
       def init_log(state,id) do
+        logDb = Reactive.Entities.get_db()
+        logId = Reactive.EntitiesDb.entity_db_id(id) <> ".log"
+        log = Reactive.LogsDb.create(logDb,logId)
         state
-          |> Map.put(:log,Reactive.LogsDb.create(Reactive.Entities.get_db(),id <> ".log"))
+          |> Map.put(:log,log)
           |> Map.put(:uniq,0)
       end
 
@@ -23,7 +30,9 @@ defmodule Reactive.LogEntity do
       end
 
       def add_to_log(state,timestamp,uniq,data) do
-        Reactive.LogsDb.delete(state.log,Integer.to_string(timestamp)<>"|"<>uniq)
+        key=Integer.to_string(timestamp)<>"|"<>uniq
+        Reactive.LogsDb.put(state.log,key,data)
+        key
       end
 
       def remove_from_log(state,timestamp,uniq) do

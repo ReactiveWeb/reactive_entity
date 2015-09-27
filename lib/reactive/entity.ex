@@ -54,18 +54,22 @@ defmodule Reactive.Entity do
   end
 
   def exists([module | args]=id) do
-    rres = try do
-             apply(module,:retrive,[id])
-           rescue
-             e ->
-               :not_found
-           end
-    case rres do
-      {:ok, %{state: state, container: container}} ->
-        Reactive.Entities.create_entity(id,state,container)
-        true
-      :not_found ->
-        false
+    if Reactive.Entities.is_entity_running(id) do
+      true
+    else
+      rres = try do
+               apply(module,:retrive,[id])
+             rescue
+               e ->
+                 :not_found
+             end
+      case rres do
+        {:ok, %{state: state, container: container}} ->
+          Reactive.Entities.create_entity(id,state,container)
+          true
+        :not_found ->
+          false
+      end
     end
   end
 
