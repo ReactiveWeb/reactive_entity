@@ -233,7 +233,7 @@ defmodule Reactive.Entity do
     spawn(__MODULE__,:start_loop,[module,args])
   end
   def start(module,args,state,container) do
-    spawn(__MODULE__,:loop,[module,args,state,container])
+    spawn(__MODULE__,:loop,[module,[module | args],state,container])
   end
 
   def start_loop(module,args) do
