@@ -275,7 +275,7 @@ defmodule Reactive.Entity do
     end
   end
 
-  defp loop(module,id,state,container) do
+  def loop(module,id,state,container) do
     receive do
       {:event,event,from} ->
         newState = try do
@@ -415,23 +415,30 @@ defmodule Reactive.Entity do
       y = Enum.filter(x,fn(z) -> z != pid end) # don't let double observation!
       [pid | y]
     end)
-    oresult=apply(module,:observe,[what,state,pid])
 
-    case oresult do
-      {:ok,nstate} ->
-        {nstate,%{ container |
-          observers: nobservers,
-          observers_monitors: nmonitors
-        }}
-      :not_allowed ->
-        sendToEntity pid, {:notify,id,what,:not_allowed}
+    try do
+      oresult=apply(module,:observe,[what,state,pid])
+
+      case oresult do
+        {:ok,nstate} ->
+          {nstate,%{ container |
+            observers: nobservers,
+            observers_monitors: nmonitors
+          }}
+        :not_allowed ->
+          sendToEntity pid, {:notify,id,what,:not_allowed}
+          {state,container}
+        {:reply,signal,nstate} ->
+          sendToEntity pid, {:notify,id,what,signal}
+          {nstate,%{ container |
+            observers: nobservers,
+            observers_monitors: nmonitors
+          }}
+      end
+    rescue
+      e ->
+        :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
         {state,container}
-      {:reply,signal,nstate} ->
-        sendToEntity pid, {:notify,id,what,signal}
-        {nstate,%{ container |
-          observers: nobservers,
-          observers_monitors: nmonitors
-        }}
     end
   end
 
