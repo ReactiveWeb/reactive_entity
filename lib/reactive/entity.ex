@@ -188,10 +188,10 @@ defmodule Reactive.Entity do
       end
 
       @spec observe(entity::entity_ref(), what::term()) :: entity_ref()
-        def observe(entity,what) do
-          send self(), {:observe_entity,entity,what}
-          entity
-        end
+      def observe(entity,what) do
+        send self(), {:observe_entity,entity,what}
+        entity
+      end
 
       @spec unobserve(entity::entity_ref(), what::term()) :: entity_ref()
       def unobserve(entity,what) do
@@ -229,8 +229,15 @@ defmodule Reactive.Entity do
     defstruct lazy_time: 30_000, observers: %{}, observers_monitors: %{}, version: 0
   end
 
-  def start(module,args) do
+  def start(module,[x]) when is_list(x) do
+   # Logger.debug("Starting #{inspect module} : #{inspect args}")
+    raise "malformed arguments"
+  end
+  def start(module,args) when is_atom(module) and is_list(args) do
     spawn(__MODULE__,:start_loop,[module,args])
+  end
+  def start(module,args) do
+    raise "malformed arguments"
   end
   def start(module,args,state,container) do
     spawn(__MODULE__,:loop,[module,[module | args],state,container])
@@ -452,14 +459,28 @@ defmodule Reactive.Entity do
   end
   defp handle_unobserve_impl(what,pid,module,_id,state,container) do
     # :io.format("UNOBSERVE IMPL ~p ~p ~p ~p ~n",[{_id,what},state,pid,container])
-    nstate=apply(module,:unobserve,[what,state,pid])
+
     observers=container.observers
+
     currentObservers=Map.get(observers,what,[])
     newObservers=Enum.filter(currentObservers,fn(observer) -> observer !== pid end)
+
+    nstate=if newObservers != currentObservers do
+      try do
+        apply(module,:unobserve,[what,state,pid])
+      rescue
+        e ->
+          :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+          state
+      end
+    else
+      state
+    end
+
     nobservers = case NewObservers do
-                [] -> Map.remove(observers)
-                _ -> Map.put(observers,what,newObservers)
-              end
+      [] -> Map.remove(observers,what)
+      _ -> Map.put(observers,what,newObservers)
+    end
 
     ncontainer = case pid do
       p when is_pid(p) ->
