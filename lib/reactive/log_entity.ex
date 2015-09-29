@@ -29,14 +29,19 @@ defmodule Reactive.LogEntity do
         :ok
       end
 
+      def get_log_key(timestamp,uniq) do
+        :erlang.iolist_to_binary([:io_lib.format("~14.10.0B",[timestamp]),"|",uniq])
+        #Integer.to_string(timestamp)<>"|"<>uniq
+      end
+
       def add_to_log(state,timestamp,uniq,data) do
-        key=Integer.to_string(timestamp)<>"|"<>uniq
+        key=get_log_key(timestamp,uniq)
         Reactive.LogsDb.put(state.log,key,data)
         key
       end
 
       def remove_from_log(state,timestamp,uniq) do
-        Reactive.LogsDb.delete(state.log,Integer.to_string(timestamp)<>"|"<>uniq)
+        Reactive.LogsDb.delete(state.log,get_log_key(timestamp,uniq))
       end
 
       def scan(state,from,to,limit \\ 1_000,reverse \\ false) do
