@@ -199,7 +199,7 @@ defmodule Reactive.Entity do
         entity
       end
 
-      defoverridable [get: 2, observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, convert: 2, retrive: 1, save: 3, notify: 4]
+      defoverridable [get: 2, observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, version: 0, convert: 2, retrive: 1, save: 3, notify: 4]
 
       @spec save_me() :: :ok
       def save_me() do
@@ -229,14 +229,15 @@ defmodule Reactive.Entity do
     defstruct lazy_time: 30_000, observers: %{}, observers_monitors: %{}, version: 0
   end
 
-  def start(module,[x]) when is_list(x) do
-   # Logger.debug("Starting #{inspect module} : #{inspect args}")
+  def start(module,args=[x]) when is_list(x) do
+    Logger.debug("Malformed arguments #{inspect module} : #{inspect args}")
     raise "malformed arguments"
   end
   def start(module,args) when is_atom(module) and is_list(args) do
     spawn(__MODULE__,:start_loop,[module,args])
   end
   def start(module,args) do
+    Logger.debug("Malformed arguments #{inspect module} : #{inspect args}")
     raise "malformed arguments"
   end
   def start(module,args,state,container) do
@@ -257,9 +258,29 @@ defmodule Reactive.Entity do
         %{state: state, container: container}} ->
         #  :io.format("persistent_entity ~p retriven from DB ~n",[id])
         #  :io.format("persistent_entity ~p started with pid ~p ~n",[id,self()])
+        version=try do
+          apply(module,:version,[])
+        rescue
+          e ->
+            :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+            raise "version error"
+        end
 
+
+        nstate=if version == container.version do
+          state
+        else
+          try do
+            Logger.info("converting #{inspect module} from version #{inspect container.version} to #{inspect version}")
+            apply(module,:convert,[container.version,state])
+          rescue
+            e ->
+              :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
+              raise "conversion error"
+          end
+        end
         :erlang.process_flag(:trap_exit, :true)
-        loop(module,id,state,container)
+        loop(module,id,nstate,%{ container | version: version})
       :not_found ->
         # :io.format("persistent_entity ~p starting with call ~p : init ( ~p ) ~n",[id,module,args])
         {:ok,state,config} = try do
