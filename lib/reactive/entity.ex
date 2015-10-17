@@ -50,27 +50,13 @@ defmodule Reactive.Entity do
   end
 
   def sendToEntity(entity,msg) do
-    sendToEntity Reactive.Entities.get_entity(entity), msg
+    Reactive.Entities.send_to_entity(entity, msg)
   end
+  
 
-  def exists([module | args]=id) do
-    if Reactive.Entities.is_entity_running(id) do
-      true
-    else
-      rres = try do
-               apply(module,:retrive,[id])
-             rescue
-               e ->
-                 :not_found
-             end
-      case rres do
-        {:ok, %{state: state, container: container}} ->
-          Reactive.Entities.create_entity(id,state,container)
-          true
-        :not_found ->
-          false
-      end
-    end
+
+  def exists(id) do
+    Reactive.Entities.is_entity_exists(id)
   end
 
   @spec observe(entity::entity_ref(), what::term(), by::entity_ref()) :: entity_ref()

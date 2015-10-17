@@ -8,6 +8,11 @@ defmodule Reactive.Entities do
     :ets.insert(__MODULE__,{:store,store})
   end
 
+  @spec get_node_by_entity_id(id::entity_id()) :: atom()
+  def get_node_by_entity_id(id) do
+    Reactive.RangeScaler.get_node(id)
+  end
+
   @spec get_entity(id::entity_id()) :: pid()
   def get_entity(id = [module | args]) do
     lr=:ets.lookup(__MODULE__,id)
@@ -15,15 +20,43 @@ defmodule Reactive.Entities do
     case lr do
       [{^id,:existing,pid}] -> pid
       [{^id,:starting}] -> receive do
-                          after
-                            23 -> get_entity(id)
-                          end
+                           after
+                             23 -> get_entity(id)
+                           end
       [] ->
-        :ets.insert(__MODULE__,{id,:starting})
-        pid=Reactive.Entity.start(module,args)
-        :ets.insert(__MODULE__,{id,:existing,pid})
-        pid
+        node=get_node_by_entity_id(id)
+        if node==node() do
+          start_entity(id)
+        else
+          :rpc.call(node,Reactive.Entities,:get_entity,[id])
+        end
     end
+  end
+
+  defp start_entity(id) do
+    :ets.insert(__MODULE__,{id,:starting})
+    pid=Reactive.Entity.start(module,args)
+    :ets.insert(__MODULE__,{id,:existing,pid})
+    pid
+  end
+
+  @spec send_to_entity(id::entity_id(), msg::term()) :: pid()
+  def send_to_entity(id = [module | args]) do
+    lr=:ets.lookup(__MODULE__,id)
+
+    case lr do
+      [{^id,:existing,pid}] -> send pid, msg
+      [{^id,:starting}] -> receive do
+                           after
+                             23 -> send_to_entity(id,msg)
+                           end
+      [] ->
+        node=get_node_by_entity_id(id)
+        if node==node() do
+          send start_entity(id), msg
+        else
+          :rpc.call(node,Reactive.Entities,:send_to_entity,[id])
+        end
   end
 
   def create_entity(id = [module | args],state,container) do
@@ -34,9 +67,13 @@ defmodule Reactive.Entities do
     case lr do
       [{^id,:existing,pid}] -> pid
       [{^id,:starting}] -> receive do
-                          after
-                            23 -> create_entity(id,state,container)
-                          end
+                           after
+                             23 -> create_entity(id,state,container)
+                           end
+      [{^id,:moving}] -> receive do
+                         after
+                           69 -> create_entity(id,state,container)
+                         end
       [] ->
         :ets.insert(__MODULE__,{id,:starting})
         pid=Reactive.Entity.start(module,args,state,container)
@@ -50,7 +87,42 @@ defmodule Reactive.Entities do
     case lr do
       [{_id,:existing,_pid}] -> true
       [{_id,:starting}] -> true
-      [] -> false
+      [{_id,:moving}] -> true
+      [] ->
+        node=get_node_by_entity_id()
+        if node==node() do
+          false
+        else
+          :rpc.call(node,Reactive.Entities,:is_entity_running,[id])
+        end
+    end
+  end
+
+  def is_entity_exists(id = [_module | _args]) do
+    lr=:ets.lookup(__MODULE__,id)
+    case lr do
+      [{_id,:existing,_pid}] -> true
+      [{_id,:starting}] -> true
+      [{_id,:moving}] -> true
+      [] ->
+        node=get_node_by_entity_id()
+        if node==node() do
+          rres = try do
+                   apply(module,:retrive,[id])
+                 rescue
+                   e ->
+                     :not_found
+                 end
+          case rres do
+            {:ok, %{state: state, container: container}} ->
+              create_entity(id,state,container)
+              true
+            :not_found ->
+              false
+          end
+        else
+          :rpc.call(node,Reactive.Entities,:is_entity_exists,[id])
+        end
     end
   end
 
