@@ -324,7 +324,7 @@ defmodule Reactive.Entity do
             loop(module,id,newState,container)
         end
       {:notify,from,what,data} ->
-      ##  :io.format("RECV NOTIFY ~p . ~p => ~p : ~p ~na",[from,what,id,data])
+        Logger.debug("RECV NOTIFY #{inspect from} . #{inspect what} => #{inspect id} : #{inspect data}")
         newState=try do
                   apply(module,:notify,[from,what,data,state])
                 rescue
@@ -411,6 +411,7 @@ defmodule Reactive.Entity do
   end
 
   defp handle_observe(what,pid,module,id,state,container) do
+    Logger.debug("RECV OBSERVE #{inspect pid} => #{inspect id} . #{inspect what}")
     if :sets.is_set(what) do
       :sets.to_list(what) |> List.foldl({state,container},fn(w,{s,c}) -> handle_observe(w,pid,module,id,s,c) end )
     else
