@@ -71,6 +71,16 @@ defmodule Reactive.Entity do
     entity
   end
 
+  @spec get_observe(entity::entity_ref(), what::term(), by::entity_ref()) :: entity_ref()
+  def get_observe(entity,what,by \\ self()) do
+    sendToEntity entity, {:observe,what,by}
+    receive do
+      {:notify,^entity,^what,{:set,[data]}} -> data
+    after
+      5000 -> raise "timeout"
+    end
+  end
+
   @spec get(entity::entity_ref(), what::term()) :: term()
   def get(entity,what) do
     id=:erlang.make_ref()
@@ -78,6 +88,8 @@ defmodule Reactive.Entity do
     receive do
       {:response,^id,response} -> response
       {:error,^id,error} -> raise error
+    after
+      5000 -> raise "timeout"
     end
   end
 

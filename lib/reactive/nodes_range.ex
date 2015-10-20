@@ -13,11 +13,11 @@ defmodule Reactive.NodesRange do
   end
 
   def load(table_name) do
-    file2tab(table_name)
+    :ets.file2tab(table_name)
   end
 
   def save(table_name) do
-    tab2file(table_name,:erlang.atom_to_list(table_name)++'.ets')
+    :ets.tab2file(table_name,:erlang.atom_to_list(table_name)++'.ets')
   end
 
   def get_node(table_name,key) do
@@ -38,7 +38,7 @@ defmodule Reactive.NodesRange do
     {node,table_name,k}
   end
 
-  def next({_,table_name,k}) do
+  def next({_,table_name,key}) do
     nk = case :ets.next(table_name,key) do
       '$end_of_table' -> :end
       k ->
@@ -47,7 +47,7 @@ defmodule Reactive.NodesRange do
     end
   end
 
-  def prev({_,table_name,k}) do
+  def prev({_,table_name,key}) do
     nk = case :ets.prev(table_name,key) do
       '$end_of_table' -> :end
       k ->

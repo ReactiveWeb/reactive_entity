@@ -1,4 +1,5 @@
 defmodule Reactive.Entities do
+
   @type entity_id() :: {term(),list(term())}
 
   def init(config) do
@@ -33,7 +34,7 @@ defmodule Reactive.Entities do
     end
   end
 
-  defp start_entity(id) do
+  defp start_entity(id=[module|args]) do
     :ets.insert(__MODULE__,{id,:starting})
     pid=Reactive.Entity.start(module,args)
     :ets.insert(__MODULE__,{id,:existing,pid})
@@ -41,7 +42,7 @@ defmodule Reactive.Entities do
   end
 
   @spec send_to_entity(id::entity_id(), msg::term()) :: pid()
-  def send_to_entity(id = [module | args]) do
+  def send_to_entity(id = [module | args],msg) do
     lr=:ets.lookup(__MODULE__,id)
 
     case lr do
@@ -55,8 +56,9 @@ defmodule Reactive.Entities do
         if node==node() do
           send start_entity(id), msg
         else
-          :rpc.call(node,Reactive.Entities,:send_to_entity,[id])
+          :rpc.cast(node,Reactive.Entities,:send_to_entity,[id])
         end
+    end
   end
 
   def create_entity(id = [module | args],state,container) do
@@ -82,14 +84,14 @@ defmodule Reactive.Entities do
     end
   end
 
-  def is_entity_running(id = [_module | _args]) do
+  def is_entity_running(id) do
     lr=:ets.lookup(__MODULE__,id)
     case lr do
       [{_id,:existing,_pid}] -> true
       [{_id,:starting}] -> true
       [{_id,:moving}] -> true
       [] ->
-        node=get_node_by_entity_id()
+        node=get_node_by_entity_id(id)
         if node==node() do
           false
         else
@@ -98,14 +100,14 @@ defmodule Reactive.Entities do
     end
   end
 
-  def is_entity_exists(id = [_module | _args]) do
+  def is_entity_exists(id=[module,_]) do
     lr=:ets.lookup(__MODULE__,id)
     case lr do
       [{_id,:existing,_pid}] -> true
       [{_id,:starting}] -> true
       [{_id,:moving}] -> true
       [] ->
-        node=get_node_by_entity_id()
+        node=get_node_by_entity_id(id)
         if node==node() do
           rres = try do
                    apply(module,:retrive,[id])
