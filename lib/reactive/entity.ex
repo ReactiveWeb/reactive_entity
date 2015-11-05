@@ -155,6 +155,9 @@ defmodule Reactive.Entity do
       def unobserve(_what,state,_from) do
         state
       end
+      def observers(_what,state,observers) do
+        state
+      end
       def can_freeze(_state,_observed) do
         true
       end
@@ -219,7 +222,6 @@ defmodule Reactive.Entity do
       end
     end
   end
-
 
   ## GEARS:
 
@@ -438,16 +440,16 @@ defmodule Reactive.Entity do
                                end
       _p -> container.observers_monitors
     end
-    nobservers=Map.update(container.observers,what,[pid],fn (x) ->
-      y = Enum.filter(x,fn(z) -> z != pid end) # don't let double observation!
-      [pid | y]
-    end)
+    wobservers=Map.get(container.observers,what,[])
+    nwobservers = [pid | Enum.filter(wobservers,fn(z) -> z != pid end)]
+    nobservers=Map.put(container.observers,what,nwobservers)
 
     try do
       oresult=apply(module,:observe,[what,state,pid])
 
       case oresult do
         {:ok,nstate} ->
+          nstate=apply(module,:observers,[what,state,wobservers,nwobservers])
           {nstate,%{ container |
             observers: nobservers,
             observers_monitors: nmonitors
@@ -462,6 +464,7 @@ defmodule Reactive.Entity do
             observers_monitors: nmonitors
           }}
       end
+
     rescue
       e ->
         :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
