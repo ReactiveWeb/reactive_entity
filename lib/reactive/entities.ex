@@ -100,7 +100,7 @@ defmodule Reactive.Entities do
     end
   end
 
-  def is_entity_exists(id=[module,_]) do
+  def is_entity_exists(id=[module|_]) do
     lr=:ets.lookup(__MODULE__,id)
     case lr do
       [{_id,:existing,_pid}] -> true

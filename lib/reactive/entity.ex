@@ -11,6 +11,9 @@ defmodule Reactive.Entity do
   @doc "called when observer removed"
   defcallback unobserve(what :: term(), state :: term, from :: entity_ref()) :: term
 
+  @doc "called when observers list changed"
+  defcallback observers(what :: term(), state :: term, observers :: term(), nobservers :: term()) :: term
+
   @doc "check if module can freeze to DB"
   defcallback can_freeze(state :: term, observed :: map) :: boolean
 
@@ -52,8 +55,6 @@ defmodule Reactive.Entity do
   def sendToEntity(entity,msg) do
     Reactive.Entities.send_to_entity(entity, msg)
   end
-  
-
 
   def exists(id) do
     Reactive.Entities.is_entity_exists(id)
@@ -155,7 +156,7 @@ defmodule Reactive.Entity do
       def unobserve(_what,state,_from) do
         state
       end
-      def observers(_what,state,observers) do
+      def observers(_what,state,observers,nobservers) do
         state
       end
       def can_freeze(_state,_observed) do
@@ -200,7 +201,7 @@ defmodule Reactive.Entity do
         entity
       end
 
-      defoverridable [get: 2, observe: 3,unobserve: 3, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, version: 0, convert: 2, retrive: 1, save: 3, notify: 4]
+      defoverridable [get: 2, observe: 3,unobserve: 3, observers: 4, observe: 2, unobserve: 2,can_freeze: 2,request: 4,event: 3, version: 0, convert: 2, retrive: 1, save: 3, notify: 4]
 
       @spec save_me() :: :ok
       def save_me() do
@@ -459,6 +460,7 @@ defmodule Reactive.Entity do
           {state,container}
         {:reply,signal,nstate} ->
           sendToEntity pid, {:notify,id,what,signal}
+          nstate=apply(module,:observers,[what,state,wobservers,nwobservers])
           {nstate,%{ container |
             observers: nobservers,
             observers_monitors: nmonitors
@@ -490,7 +492,8 @@ defmodule Reactive.Entity do
 
     nstate=if newObservers != currentObservers do
       try do
-        apply(module,:unobserve,[what,state,pid])
+        ustate=apply(module,:unobserve,[what,state,pid])
+        apply(module,:observers,[what,ustate,currentObservers,newObservers])
       rescue
         e ->
           :io.format("Error ~p in ~p ~n",[e,:erlang.get_stacktrace()])
