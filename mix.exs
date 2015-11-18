@@ -3,9 +3,7 @@ defmodule ReactiveEntity.Mixfile do
 
   def project do
     [app: :reactive_entity,
-     version: "0.0.1",
-     deps_path: "../../deps",
-     lockfile: "../../mix.lock",
+     version: "0.1.0",
      elixir: "~> 1.0.0",
      deps: deps]
   end
@@ -32,7 +30,6 @@ defmodule ReactiveEntity.Mixfile do
   #
   # Type `mix help deps` for more examples and options
   defp deps do
-    [{:reactive_db, in_umbrella: true}]
-    # [{:eleveldb, github: "basho/eleveldb", tag: "2.1.3"}]
+    [{:reactive_db, github: "ReactiveWeb/reactive_db"}]
   end
 end
