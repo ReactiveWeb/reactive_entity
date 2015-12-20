@@ -44,6 +44,17 @@ defmodule Reactive.LogEntity do
         Reactive.LogsDb.delete(state.log,get_log_key(timestamp,uniq))
       end
 
+      def overwrite_log(state,timestamp,uniq,data) do
+        key=get_log_key(timestamp,uniq)
+        Reactive.LogsDb.put(state.log,key,data)
+      end
+
+      def update_log(state,timestamp,uniq,update_fun) do
+        data=get(state.log,key)
+        ndata=update_fun.(data)
+        Reactive.LogsDb.put(state.log,key,ndata)
+      end
+
       def scan(state,from,to,limit \\ 1_000,reverse \\ false) do
         f=case from do
             :begin -> :begin
