@@ -50,6 +50,13 @@ defmodule Reactive.LogEntity do
       end
 
       def update_log(state,timestamp,uniq,update_fun) do
+        key=get_log_key(timestamp,uniq)
+        data=get(state.log,key)
+        ndata=update_fun.(data)
+        Reactive.LogsDb.put(state.log,key,ndata)
+      end
+
+      def update_log(state,key,update_fun) do
         data=get(state.log,key)
         ndata=update_fun.(data)
         Reactive.LogsDb.put(state.log,key,ndata)
