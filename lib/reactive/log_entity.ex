@@ -51,16 +51,17 @@ defmodule Reactive.LogEntity do
 
       def update_log(state,timestamp,uniq,update_fun) do
         key=get_log_key(timestamp,uniq)
-        data=get(state.log,key)
+        {:ok,data}=Reactive.LogsDb.get(state.log,key)
         ndata=update_fun.(data)
         Reactive.LogsDb.put(state.log,key,ndata)
         ndata
       end
 
       def update_log(state,key,update_fun) do
-        data=Reactive.LogsDb.get(state.log,key)
+        {:ok,data}=Reactive.LogsDb.get(state.log,key)
         ndata=update_fun.(data)
         Reactive.LogsDb.put(state.log,key,ndata)
+        ndata
       end
 
       def scan(state,from,to,limit \\ 1_000,reverse \\ false) do
